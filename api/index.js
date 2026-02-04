@@ -152,7 +152,11 @@ app.get('/api/debug', async (req, res) => {
     let sitesCount = 0;
     let dbError = null;
 
-    if (REMOTE_DB_URL) {
+    // 优先检查嵌入配置
+    if (EMBEDDED_SITES) {
+        dbStatus = 'embedded';
+        sitesCount = EMBEDDED_SITES.sites?.length || 0;
+    } else if (REMOTE_DB_URL) {
         try {
             if (remoteDbCache) {
                 dbStatus = 'cached';
@@ -185,6 +189,13 @@ app.get('/api/debug', async (req, res) => {
             REMOTE_DB_URL: REMOTE_DB_URL ? 'configured' : 'not_set',
             SITES_JSON: EMBEDDED_SITES ? `embedded (${EMBEDDED_SITES.sites?.length} sites)` : 'not_set'
         },
+        // 新增：原始环境变量检测（帮助诊断配置问题）
+        raw_env_check: {
+            SITES_JSON_exists: !!process.env['SITES_JSON'],
+            SITES_JSON_length: process.env['SITES_JSON']?.length || 0,
+            REMOTE_DB_URL_exists: !!process.env['REMOTE_DB_URL'],
+            REMOTE_DB_URL_length: process.env['REMOTE_DB_URL']?.length || 0
+        },
         remote_db: {
             status: dbStatus,
             sites_count: sitesCount,
@@ -192,6 +203,37 @@ app.get('/api/debug', async (req, res) => {
             url_preview: REMOTE_DB_URL ? REMOTE_DB_URL.substring(0, 50) + '...' : null
         },
         cache_type: 'memory',
+        timestamp: new Date().toISOString()
+    });
+});
+
+// ========== API: /api/env-test (直接测试环境变量读取) ==========
+// 这个端点在请求时直接读取 process.env，而不是使用模块加载时的变量
+// 用于诊断 Vercel 环境变量配置问题
+app.get('/api/env-test', (req, res) => {
+    // 直接在请求时读取，而不是用模块级变量
+    const envCheck = {
+        TMDB_API_KEY: process.env.TMDB_API_KEY ? `configured (${process.env.TMDB_API_KEY.length} chars)` : 'NOT_SET',
+        REMOTE_DB_URL: process.env['REMOTE_DB_URL'] ? `configured (${process.env['REMOTE_DB_URL'].length} chars)` : 'NOT_SET',
+        TMDB_PROXY_URL: process.env['TMDB_PROXY_URL'] ? `configured (${process.env['TMDB_PROXY_URL'].length} chars)` : 'NOT_SET',
+        ACCESS_PASSWORD: process.env['ACCESS_PASSWORD'] ? `configured (${process.env['ACCESS_PASSWORD'].length} chars)` : 'NOT_SET',
+        SITES_JSON: process.env['SITES_JSON'] ? `configured (${process.env['SITES_JSON'].length} chars)` : 'NOT_SET'
+    };
+
+    // 列出所有环境变量的 key（不显示值，保护隐私）
+    const allEnvKeys = Object.keys(process.env).filter(k =>
+        !k.startsWith('npm_') &&
+        !k.startsWith('PATH') &&
+        !k.includes('SECRET') &&
+        !k.includes('KEY') &&
+        !k.includes('PASSWORD')
+    ).sort();
+
+    res.json({
+        message: '这是直接在请求时读取的环境变量状态',
+        env_at_request_time: envCheck,
+        all_env_keys_sample: allEnvKeys.slice(0, 30),
+        total_env_count: Object.keys(process.env).length,
         timestamp: new Date().toISOString()
     });
 });
